@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Water Quality Incident Reporter</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#f1f5f9;color:#0f172a}
+header{background:#0c4a6e;color:#fff;padding:12px 16px}header h1{margin:0 0 8px;font-size:1.15rem}
+nav{display:flex;gap:6px;flex-wrap:wrap}nav button{background:#075985;color:#fff;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
+nav button.on{background:#fff;color:#0c4a6e;font-weight:600}
+main{max-width:1100px;margin:0 auto;padding:16px}
+.card{background:#fff;border-radius:10px;padding:16px;margin-bottom:16px;box-shadow:0 1px 3px #0002;overflow-x:auto}
+h2{margin:0 0 12px;font-size:1.05rem}h3{margin:12px 0 6px;font-size:.95rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:#e0f2fe;border-radius:8px;padding:12px;text-align:center}.stat b{display:block;font-size:1.6rem}
+label{display:block;font-size:.85rem;margin:10px 0 4px;font-weight:600}
+input,select,textarea{width:100%;padding:8px;border:1px solid #94a3b8;border-radius:6px;font:inherit}
+button.p{background:#0369a1;color:#fff;border:0;padding:9px 16px;border-radius:6px;cursor:pointer;margin-top:12px}
+button.s{background:#e2e8f0;border:0;padding:5px 10px;border-radius:5px;cursor:pointer;margin-right:4px}
+table{border-collapse:collapse;width:100%;font-size:.85rem}th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left;white-space:nowrap}th{background:#f8fafc}
+.ok{color:#15803d}.bad{color:#b91c1c}.muted{color:#64748b;font-size:.85rem}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.75rem;background:#e2e8f0}
+.Critical{background:#fecaca}.High{background:#fed7aa}.Normal{background:#bbf7d0}.Low{background:#e2e8f0}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:640px){.row{grid-template-columns:1fr}}
+.bar{display:flex;align-items:center;gap:8px;margin:4px 0}.bar i{display:block;height:18px;background:#0284c7;border-radius:3px;min-width:2px}
+.pie{width:150px;height:150px;border-radius:50%}
+.box{border:1px solid #cbd5e1;border-radius:8px;padding:10px;margin-top:12px;background:#f8fafc}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback}=React;
+const api=async(path,opt={})=>{
+  const o={method:opt.method||'GET',headers:{'Content-Type':'application/json'}};
+  if(opt.body)o.body=JSON.stringify(opt.body);
+  try{const r=await fetch('/api'+path,o);const data=await r.json().catch(()=>({}));return{ok:r.ok,status:r.status,data};}
+  catch(e){return{ok:false,status:0,data:{error:'Cannot reach server'}};}
+};
+function usePoll(path,ms=4000){
+  const [d,setD]=useState(null);
+  const load=useCallback(async()=>{const r=await api(path);if(r.ok)setD(r.data);},[path]);
+  useEffect(()=>{load();const t=setInterval(load,ms);return()=>clearInterval(t);},[load]);
+  return [d,load];
+}
+const Pri=({r})=>r.priority_label?<span className={'tag '+r.priority_label}>{r.priority_label}</span>:'-';
+const Mark=({ok})=><span className={ok?'ok':'bad'}>{ok?'accepts':'rejects'}</span>;
+const COLORS=['#0284c7','#16a34a','#f59e0b','#dc2626','#7c3aed','#64748b'];
+
+function Submit(){
+  const empty={reporter_name:'',contact:'',station_code:'',param_code:'',description:'',urgency:'Normal'};
+  const [f,setF]=useState(empty);const [v,setV]=useState(null);const [res,setRes]=useState(null);
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  useEffect(()=>{const t=setTimeout(async()=>{
+    if(!f.station_code&&!f.param_code){setV(null);return;}
+    const r=await api('/validate',{method:'POST',body:f});if(r.ok)setV(r.data);},250);return()=>clearTimeout(t);},[f.station_code,f.param_code,f.description]);
+  const submit=async()=>{const r=await api('/reports',{method:'POST',body:f});setRes({...r.data,_ok:r.ok});if(r.ok)setF(empty);};
+  const fb=(k,label)=>v&&f[k==='station'?'station_code':'param_code']?
+    <div className="muted">{label}: DFA <Mark ok={v[k].dfa}/> · Regex <Mark ok={v[k].regex}/> · <span className={v[k].dfa?'ok':'bad'}>{v[k].message}</span></div>:null;
+  return <div className="card"><h2>Submit Water Quality Report</h2>
+    <div className="row"><div><label>Reporter name</label><input value={f.reporter_name} onChange={set('reporter_name')}/></div>
+    <div><label>Contact</label><input value={f.contact} onChange={set('contact')}/></div>
+    <div><label>Station code (WS + zone N/S/E/W + 3 digits)</label><input placeholder="WSN123" value={f.station_code} onChange={set('station_code')}/>{fb('station','Station')}</div>
+    <div><label>Parameter code (P + 2 digits)</label><input placeholder="P07" value={f.param_code} onChange={set('param_code')}/>{fb('param','Parameter')}</div></div>
+    <label>Description</label><textarea rows="3" value={f.description} onChange={set('description')}/>
+    <label>Urgency</label><select value={f.urgency} onChange={set('urgency')}>{['Low','Normal','High','Emergency'].map(u=><option key={u}>{u}</option>)}</select>
+    {v&&v.category&&<div className="box">Detected category: <b>{v.category}</b> {!v.zone_known&&<span className="bad">· Zone '{v.zone}' unknown, will go to fallback queue</span>}<div className="muted">{v.note}</div></div>}
+    <button className="p" onClick={submit}>Submit report</button>
+    {res&&<div className="box">{res._ok?<>
+      <div className="ok"><b>Report submitted. ID: {res.report_code}</b></div>
+      <div>Category: <b>{res.category}</b> · Priority: <Pri r={res}/> · Status: <b>{res.status}</b> · Handler: <b>{res.handler_name||'not yet assigned'}</b></div>
+      <div className="muted">{res.decision}</div></>:
+      <div className="bad"><b>Rejected{res.report_code?' ('+res.report_code+')':''}</b><ul>{(res.errors||[res.error]).map((e,i)=><li key={i}>{e}</li>)}</ul></div>}</div>}
+  </div>;
+}
+
+function User(){
+  const [s]=usePoll('/stats');const [code,setCode]=useState('');const [r,setR]=useState(null);const [err,setErr]=useState('');
+  const search=async()=>{const x=await api('/reports/'+encodeURIComponent(code.trim()));if(x.ok){setR(x.data);setErr('');}else{setR(null);setErr(x.data.error||'Error');}};
+  const [all]=usePoll('/reports');
+  return <><div className="card"><h2>My Reports Overview</h2>
+    <div className="grid">{s&&[['Total',s.total],['Pending',s.pending],['Assigned',s.assigned+s.in_progress],['Resolved',s.resolved],['Rejected',s.rejected]].map(([k,n])=><div className="stat" key={k}><b>{n}</b>{k}</div>)}</div></div>
+    <div className="card"><h2>Track a report</h2><div style={{display:'flex',gap:8}}><input placeholder="WQ-20261113-0001" value={code} onChange={e=>setCode(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search()}/><button className="p" style={{marginTop:0}} onClick={search}>Search</button></div>
+    {err&&<div className="bad box">{err}</div>}
+    {r&&<div className="box"><b>{r.report_code}</b> · Status: <b>{r.status}</b> · Handler: <b>{r.handler_name||'None yet'}</b><br/>Category: {r.category||'-'} · Priority: <Pri r={r}/> · Zone: {r.zone||'-'}<div className="muted">{r.decision}</div></div>}</div>
+    <div className="card"><h2>Recent reports</h2><table><thead><tr><th>ID</th><th>Station</th><th>Category</th><th>Priority</th><th>Status</th><th>Handler</th></tr></thead>
+    <tbody>{(all||[]).slice(0,15).map(x=><tr key={x.id}><td>{x.report_code}</td><td>{x.station_code}</td><td>{x.category||'-'}</td><td><Pri r={x}/></td><td>{x.status}</td><td>{x.handler_name||'-'}</td></tr>)}</tbody></table></div></>;
+}
+
+function Handler(){
+  const [hs,reloadH]=usePoll('/handlers');const [hid,setHid]=useState('');const [rs,setRs]=useState([]);const [cap,setCap]=useState('');const [msg,setMsg]=useState('');
+  const h=(hs||[]).find(x=>String(x.id)===hid);
+  const load=useCallback(async()=>{if(hid){const r=await api('/handlers/'+hid+'/reports');if(r.ok)setRs(r.data);}},[hid]);
+  useEffect(()=>{load();const t=setInterval(load,4000);return()=>clearInterval(t);},[load]);
+  useEffect(()=>{if(h)setCap(h.capacity);},[hid]);
+  const upd=async b=>{const r=await api('/handlers/'+hid,{method:'PUT',body:b});setMsg(r.ok?'Saved':r.data.error);reloadH();load();};
+  const move=async(id,status)=>{const r=await api('/reports/'+id+'/status',{method:'PUT',body:{status}});setMsg(r.ok?'Status updated':r.data.error);load();reloadH();};
+  const nextOf={'Assigned':'In Progress','In Progress':'Resolved'};
+  return <div className="card"><h2>Handler Dashboard</h2>
+    <label>Select handler</label><select value={hid} onChange={e=>{setHid(e.target.value);setMsg('');}}><option value="">-- choose --</option>{(hs||[]).map(x=><option key={x.id} value={x.id}>{x.name} ({x.type})</option>)}</select>
+    {h&&<div className="box"><div>Load <b>{h.load}/{h.capacity}</b> · Backup: {h.backup_name||'-'}</div>
+      <label><input type="checkbox" style={{width:'auto'}} checked={!!h.available} onChange={e=>upd({available:e.target.checked})}/> Available</label>
+      <div style={{display:'flex',gap:8,alignItems:'center',marginTop:8}}><span>Capacity</span><input type="number" min="0" style={{width:100}} value={cap} onChange={e=>setCap(e.target.value)}/><button className="s" onClick={()=>upd({capacity:cap})}>Set</button></div>
+      {msg&&<div className="muted">{msg}</div>}</div>}
+    {hid&&<><h3>Assigned reports</h3><table><thead><tr><th>ID</th><th>Category</th><th>Zone</th><th>Priority</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>{rs.map(r=><tr key={r.id}><td>{r.report_code}</td><td>{r.category}</td><td>{r.zone}</td><td><Pri r={r}/></td><td>{r.created_at.slice(0,19).replace('T',' ')}</td><td>{r.status}</td>
+      <td>{nextOf[r.status]?<button className="s" onClick={()=>move(r.id,nextOf[r.status])}>Mark {nextOf[r.status]}</button>:'-'}</td></tr>)}</tbody></table></>}
+  </div>;
+}
+
+function Routing(){
+  const [d,load]=usePoll('/routing');const [fix,setFix]=useState({});
+  const route=async id=>{const f=fix[id]||{};const r=await api('/queue/'+id+'/route',{method:'POST',body:f});if(!r.ok)alert(r.data.error);load();};
+  if(!d)return <div className="card">Loading...</div>;
+  const T=({cols,rows,empty})=><table><thead><tr>{cols.map(c=><th key={c}>{c}</th>)}</tr></thead><tbody>{rows.length?rows:<tr><td colSpan={cols.length} className="muted">{empty}</td></tr>}</tbody></table>;
+  return <><div className="card"><h2>Routing table (2-tier)</h2><div className="muted">Chemical / Biological → Zonal Quality Officer. All others → nearest field team via 4-zone lookup. Unknown zone → CENTRAL_FALLBACK. Unmapped code → correction queue.</div>
+    <T cols={['Zone','Branch','Depot','Field team','Quality officer']} empty="" rows={d.routing_table.map(r=><tr key={r.zone}><td>{r.zone}</td><td>{r.branch}</td><td>{r.depot}</td><td>{r.field_team}</td><td>{r.quality_officer}</td></tr>)}/></div>
+    <div className="card"><h2>Handler loads &amp; backups</h2><T cols={['Handler','Type','Zone','Load','Capacity','Available','Backup']} empty="" rows={d.handlers.map(h=><tr key={h.id}><td>{h.name}</td><td>{h.type}</td><td>{h.zone}</td><td>{h.load}</td><td>{h.capacity}</td><td className={h.available?'ok':'bad'}>{h.available?'Yes':'No'}</td><td>{h.backup_name||'-'}</td></tr>)}/></div>
+    <div className="card"><h2>Queued reports (ordered)</h2><T cols={['#','Report','Queue','Category','Zone','Priority','Override','Reason / fix']} empty="Queue empty" rows={d.queue.map((q,i)=><tr key={q.report_id}><td>{i+1}</td><td>{q.report_code}</td><td>{q.kind}</td><td>{q.category}</td><td>{q.zone}</td><td><Pri r={{priority_label:{1:'Critical',2:'High',3:'Normal',4:'Low'}[q.priority]}}/></td><td>{q.override?'Yes':''}</td>
+      <td>{q.kind==='WAITING'?q.reason:<span><input style={{width:60}} placeholder="Zone" onChange={e=>setFix({...fix,[q.report_id]:{...fix[q.report_id],zone:e.target.value}})}/> {q.category==='Unclassified'&&<select style={{width:110}} onChange={e=>setFix({...fix,[q.report_id]:{...fix[q.report_id],category:e.target.value}})}><option value="">Category</option>{['Chemical','Biological','Physical','Pressure','Supply'].map(c=><option key={c}>{c}</option>)}</select>} <button className="s" onClick={()=>route(q.report_id)}>Route</button></span>}</td></tr>)}/></div>
+    <div className="row"><div className="card"><h2>Escalations</h2><T cols={['Report','Decision']} empty="None" rows={d.escalations.map(e=><tr key={e.id}><td>{e.report_code}</td><td>{e.decision}</td></tr>)}/></div>
+    <div className="card"><h2>Priority overrides</h2><T cols={['Report','Decision']} empty="None" rows={d.overrides.map(e=><tr key={e.id}><td>{e.report_code}</td><td>{e.decision}</td></tr>)}/></div></div>
+    <div className="card"><h2>Routing decision log</h2><T cols={['Time','Report','Decision']} empty="No activity" rows={d.log.map(e=><tr key={e.id}><td>{e.timestamp.slice(0,19).replace('T',' ')}</td><td>{e.report_code}</td><td>{e.decision}</td></tr>)}/></div></>;
+}
+
+function Bars({title,data}){const m=Math.max(1,...data.map(x=>x.n));
+  return <div className="card"><h2>{title}</h2>{data.length?data.map(x=><div className="bar" key={x.label}><span style={{width:100}}>{x.label}</span><i style={{width:(x.n/m*60)+'%'}}/> {x.n}</div>):<div className="muted">No data</div>}</div>;}
+function Analytics(){
+  const [a]=usePoll('/analytics');if(!a)return <div className="card">Loading...</div>;
+  const tot=a.resolved+a.unresolved;let acc=0;
+  const pie=tot?'conic-gradient('+a.by_category.map((c,i)=>{const s=acc;acc+=c.n/a.by_category.reduce((x,y)=>x+y.n,0)*100;return COLORS[i%6]+' '+s+'% '+acc+'%';}).join(',')+')':'#e2e8f0';
+  return <><div className="row"><Bars title="Reports by zone" data={a.by_zone}/><Bars title="Reports by category" data={a.by_category}/></div>
+    <div className="row"><div className="card"><h2>Category share</h2><div style={{display:'flex',gap:16,alignItems:'center',flexWrap:'wrap'}}><div className="pie" style={{background:pie}}/><div>{a.by_category.map((c,i)=><div key={c.label}><span style={{background:COLORS[i%6],display:'inline-block',width:12,height:12,marginRight:6}}/>{c.label} ({c.n})</div>)}</div></div></div>
+    <div className="card"><h2>Resolved vs unresolved</h2><div className="grid"><div className="stat"><b>{a.resolved}</b>Resolved</div><div className="stat"><b>{a.unresolved}</b>Unresolved</div></div>
+    <Bars title="" data={a.by_status}/></div></div></>;
+}
+
+function App(){
+  const tabs={'Submit Report':Submit,'User Dashboard':User,'Handler Dashboard':Handler,'Routing Management':Routing,'Analytics':Analytics};
+  const [t,setT]=useState('Submit Report');const C=tabs[t];
+  return <><header><h1>💧 Water Quality Incident Reporter</h1><nav>{Object.keys(tabs).map(k=><button key={k} className={k===t?'on':''} onClick={()=>setT(k)}>{k}</button>)}</nav></header><main><C/></main></>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script></body></html>
